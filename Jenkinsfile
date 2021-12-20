@@ -30,7 +30,7 @@ DevOps Team'''
 						mail bcc: '', body: "${body}", cc: '', charset: 'UTF-8', from: '', replyTo: '', subject: "${subject}", to: "${mail_to}";
 						
 						sh '''
-						#!/bin/bash
+						
 						LATEST_TAG=$(git  describe --tag | awk -F "-" '{print $1}')
 						IFS='.' # the delimiter is period
 						read -ra VERSION <<< "$LATEST_TAG"
