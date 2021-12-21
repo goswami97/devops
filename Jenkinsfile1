@@ -16,25 +16,25 @@ pipeline{
                 script{
                     sh '''
                     LATEST_TAG=$(git  describe --tag | awk -F "-" '{print $1}')
-					major=$(echo "$LATEST_TAG" | awk -F "." '{print $1}')
-					minor=$(echo "$LATEST_TAG" | awk -F "." '{print $2}')
-					patch=$(echo "$LATEST_TAG" | awk -F "." '{print $3}')
+		    major=$(echo "$LATEST_TAG" | awk -F "." '{print $1}')
+		    minor=$(echo "$LATEST_TAG" | awk -F "." '{print $2}')
+		    patch=$(echo "$LATEST_TAG" | awk -F "." '{print $3}')
 
-					echo "major $major"
-					echo "minor $minor"
-					echo "patch $patch"
+		    echo "major $major"
+		    echo "minor $minor"
+		    echo "patch $patch"
 
-					newpatch=$(expr $patch + 1)
-					echo "new patch $newpatch"
+		    newpatch=$(expr $patch + 1)
+		    echo "new patch $newpatch"
 
-					new_tag="${major}.${minor}.${newpatch}"
-					echo "the new git tag generated $new_tag"
+		    new_tag="${major}.${minor}.${newpatch}"
+		    echo "the new git tag generated $new_tag"
 					
                     mvn clean package
                     
                     git tag "$new_tag"
-					git push https://goswami97:"$githubAccessToken"@github.com/goswami97/testingrepo.git --tags
-					echo $new_tag > /tmp/buildNo
+		    git push https://goswami97:"$githubAccessToken"@github.com/goswami97/testingrepo.git --tags
+		    echo $new_tag > /tmp/buildNo
                     '''
                 }
             }
@@ -57,7 +57,7 @@ pipeline{
 
                     sh '''
                     cd /home/projectX/
-					new_tag=$(cat /tmp/buildNo)
+		    new_tag=$(cat /tmp/buildNo)
                     docker login --username "$dockerid" --password "$dockerpass"
                     docker build -t santoshgoswami/samplewebapp:$new_tag .
                     #docker tag samplewebapp:$new_tag santoshgoswami/samplewebapp:$new_tag
@@ -71,7 +71,7 @@ pipeline{
 
                 script{
                         sh '''
-						new_tag=$(cat /tmp/buildNo)
+			new_tag=$(cat /tmp/buildNo)
                         docker push santoshgoswami/samplewebapp:$new_tag
                         #docker push santoshgoswami/samplewebapp:$BUILD_NUMBER
                         '''
@@ -85,7 +85,7 @@ pipeline{
                 script{
                     
                     sh '''
-					new_tag=$(cat /tmp/buildNo)
+		    new_tag=$(cat /tmp/buildNo)
                     ssh jnsadmin@172.31.33.26 'docker rm $(docker ps -qa) -f'
                     docker -H ssh://jnsadmin@172.31.33.26 run -d -p 8000:8080 santoshgoswami/samplewebapp
                     '''
