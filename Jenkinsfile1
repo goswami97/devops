@@ -1,9 +1,6 @@
 pipeline{
     
     agent any
-    tools{
-        maven "Maven"
-    }
     
     parameters{
         choice(name: 'action', choices: ['deployDev', 'deployTest', 'deployUat'], description: 'Choose environment')
@@ -14,6 +11,18 @@ pipeline{
         stage('Git Checkout'){
             steps{
                 git branch: 'master', url: 'https://github.com/goswami97/testingrepo.git'
+            }
+        }
+        
+        stage('Mail Intemation'){
+            steps{
+                script{
+                    subject= "${currentBuild.projectName} - Build # ${currentBuild.number}"
+                    body="<html><body>Hi all,<br><br>CI-CD Pipeline has been initiated.<br><br>Regards,<br>DevOps Team.</body></html>"
+				    mail_to = "santoshgoswami691@gmail.com"
+				    mail bcc: '', body: "${body}", cc: '', charset: 'UTF-8', from: '',mimeType: 'text/html', replyTo: '', subject: "${subject}", to: "${mail_to}"
+				
+                }		
             }
         }
         
@@ -98,6 +107,23 @@ pipeline{
                         '''
                     }
                 }
+            }
+        }
+        
+        stage('Deployment Status'){
+            steps{
+                sleep 60
+                script{
+                    sh '''
+                    status=`curl -so /dev/null -w '%{response_code}' http://13.234.213.1:8000/LoginWebApp-1/`
+                    if [[ "$status" -eq 200 ]]
+                    then
+                        echo "Deployment Successfull"
+                    else
+                        echo "Deployment unsuccessfull"
+                    fi
+                    '''
+            }
             }
         }
         
