@@ -1,98 +1,133 @@
 pipeline{
-
+    
     agent any
     tools{
         maven "Maven"
     }
+    
+    parameters{
+        choice(name: 'action', choices: ['deployDev', 'deployTest', 'deployUat'], description: 'Choose environment')
+    }
+    
     stages{
-
-        stage('Git checkout'){
+        
+        stage('Git Checkout'){
             steps{
                 git branch: 'master', url: 'https://github.com/goswami97/testingrepo.git'
             }
         }
+        
+        stage('Git tag'){
+            steps{
+                script{
+                    if("$action" == "deployDev"){
+                        sh '''
+                        LATEST_TAG=$(git  describe --tag | awk -F "-" '{print $1}')
+		                major=$(echo "$LATEST_TAG" | awk -F "." '{print $1}')
+		                minor=$(echo "$LATEST_TAG" | awk -F "." '{print $2}')
+		                patch=$(echo "$LATEST_TAG" | awk -F "." '{print $3}')
+
+		                echo "major $major"
+		                echo "minor $minor"
+		                echo "patch $patch"
+
+		                newpatch=$(expr $patch + 1)
+		                echo "new patch $newpatch"
+
+		                new_tag="${major}.${minor}.${newpatch}"
+		                echo "the new git tag generated $new_tag"
+                    
+		                echo $new_tag > /tmp/buildNo
+                        '''
+                    }
+                }
+            }
+        }
+        
         stage('Code build'){
             steps{
                 script{
-                    sh '''
-                    LATEST_TAG=$(git  describe --tag | awk -F "-" '{print $1}')
-		    major=$(echo "$LATEST_TAG" | awk -F "." '{print $1}')
-		    minor=$(echo "$LATEST_TAG" | awk -F "." '{print $2}')
-		    patch=$(echo "$LATEST_TAG" | awk -F "." '{print $3}')
-
-		    echo "major $major"
-		    echo "minor $minor"
-		    echo "patch $patch"
-
-		    newpatch=$(expr $patch + 1)
-		    echo "new patch $newpatch"
-
-		    new_tag="${major}.${minor}.${newpatch}"
-		    echo "the new git tag generated $new_tag"
-					
-                    mvn clean package
-                    
-                    git tag "$new_tag"
-		    git push https://goswami97:"$githubAccessToken"@github.com/goswami97/testingrepo.git --tags
-		    echo $new_tag > /tmp/buildNo
-                    '''
-                }
-            }
-        }
-        stage('Copy to build forlder'){
-
-            steps{
-                script{
-                    sh '''
-                    scp /var/lib/jenkins/workspace/ScriptedPipeline/target/*.war /home/projectX/
-                    '''
-                }
-            }
-        }
-        stage('Docker Build and Tag'){
-
-            steps{
-
-                script{
-
-                    sh '''
-                    cd /home/projectX/
-		    new_tag=$(cat /tmp/buildNo)
-                    docker login --username "$dockerid" --password "$dockerpass"
-                    docker build -t santoshgoswami/samplewebapp:$new_tag .
-                    #docker tag samplewebapp:$new_tag santoshgoswami/samplewebapp:$new_tag
-                    '''
-                }
-            }
-        }
-        stage('Docker image push to docker hub'){
-
-            steps{
-
-                script{
+                    if("$action" == "deployDev"){
                         sh '''
-			new_tag=$(cat /tmp/buildNo)
-                        docker push santoshgoswami/samplewebapp:$new_tag
-                        #docker push santoshgoswami/samplewebapp:$BUILD_NUMBER
+                        mvn clean package
+                        new_tag=$(cat /tmp/buildNo)
+                        git tag "$new_tag"
+		                git push https://goswami97:"$githubAccessToken"@github.com/goswami97/testingrepo.git --tags
                         '''
+                    }
                 }
             }
         }
-        stage('Deploy container in Remote server'){
-
+        
+        stage('Docker Build and Tag'){
             steps{
-
                 script{
-                    
-                    sh '''
-		    new_tag=$(cat /tmp/buildNo)
-                    ssh jnsadmin@172.31.33.26 'docker rm $(docker ps -qa) -f'
-                    docker -H ssh://jnsadmin@172.31.33.26 run -d -p 8000:8080 santoshgoswami/samplewebapp
-                    '''
+                    if("$action" == "deployDev"){
+                        sh '''
+                        cd /home/projectX/
+                        new_tag=$(cat /tmp/buildNo)
+                        docker login --username "$dockerid" --password "$dockerpass"
+                        docker build -t santoshgoswami/samplewebapp:$new_tag .
+                        '''
+                    }
                 }
             }
         }
-
-
+        
+        stage('Docker image push to docker hub'){
+            steps{
+                script{
+                    if("$action" == "deployDev"){
+                        sh '''
+                        new_tag=$(cat /tmp/buildNo)
+                        docker push santoshgoswami/samplewebapp:$new_tag
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy container in Remote server'){
+            steps{
+                script{
+                    if("$action" == "deployDev"){
+                        sh '''
+                        new_tag=$(cat /tmp/buildNo)
+                        ssh jnsadmin@172.31.33.26 'docker rm $(docker ps -qa) -f'
+                        docker -H ssh://jnsadmin@172.31.33.26 run -d -p 8000:8080 santoshgoswami/samplewebapp:$new_tag
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Test'){
+            steps{
+                script{
+                    if("$action" == "deployTest"){
+                    sh '''
+                    echo "This is Testing stage"
+                    '''
+                    }
+                }
+            }
+        }
+        
+        stage('UAT'){
+            steps{
+                script{
+                    if("$action" == "deployUat"){
+                        sh '''
+                        echo "This is Uat stage"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        
+        
+        
+        
     }
 }
