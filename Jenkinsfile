@@ -1,75 +1,187 @@
 pipeline{
-
 	agent any
-	
-	parameters{
-		choice(
-			name: 'environment',
-			choices: "deployDev\ndeployTest\ndeployUat",
-			description: 'Choose environment'
-		)
+	tools{
+	    maven 'Maven'
 	}
+	parameters{
+        choice(name: 'Deploy_To', choices: ['DeployDev', 'DeployTest', 'DeployUAT'], description: 'Pick environment')
+        //booleanParam(name: 'gitTag', defaultValue: false, description: 'Git tagging ?')
+        //booleanParam(name: 'mail', defaultValue: false, description: 'Sent mail ?')
+    }
 	
 	stages{
 		
-		stage('Deployment'){
-			steps{
-				echo "Deployment started"
-				script{
-					if("$environment" == "deployDev"){
-						echo "This is Development stage"
-						
-						git branch: 'main', url: 'https://goswami97:"$githubAccessToken"@github.com/goswami97/testingrepo.git'
-						subject= "${currentBuild.projectName} - Build # ${currentBuild.number}"
-						body = '''Hi,
-We would like to inform you CICD trigger has been initiated.
-						
-Regards,
-DevOps Team'''
-						mail_to = "santoshgoswami691@gmail.com"
-						mail bcc: '', body: "${body}", cc: '', charset: 'UTF-8', from: '', replyTo: '', subject: "${subject}", to: "${mail_to}";
-						
-						sh '''
-						#!/bin/bash
-						LATEST_TAG=$(git  describe --tag | awk -F "-" '{print $1}')
-						IFS='.' # the delimiter is period
-						read -ra VERSION <<< "$LATEST_TAG"
-						echo "latest tag is $LATEST_TAG"
-						echo "major ${VERSION[0]}"
-						echo "minor ${VERSION[1]}"
-						echo "patch ${VERSION[2]}"
-						
-						read -ra TAG <<< "$LATEST_TAG"
-						echo "incoming git tag ${TAG[0]} ${TAG[1]} ${TAG[2]}"
-						patch=$(expr ${TAG[2]} + 1)
-						echo "the new patch verison is $patch"
-						
-						new_tag=""
-						new_tag+="${TAG[0]}."
-						new_tag+="${TAG[1]}."
-						new_tag+="$patch"
-						echo "the new git tag generated $new_tag"
-																	
-						# get latest untagged commit
-						commit_id=$(git log --pretty=oneline|head -1| awk '{print $1}')
-						echo "the commit id is $commit_id"
-						
-					
-						# push the new tag
-						git tag -a "$new_tag" "$commit_id" -m "adding tag"
-						git push origin --tag
-						
-						'''
-						
-					}else if("$environment" == "deployTest"){
-						echo "This is Test stage"
-					}else if("$environment" == "deployUat"){
-						echo "This is UAT stage"
-					}else{
-						echo "This is Default"
+		stage('Development'){
+			when{
+				environment name: 'Deploy_To', value: 'DeployDev'
+			}
+			
+			agent any
+			
+			stages{
+				stage('Git Checkout'){
+					steps{
+						git branch: 'master', url: 'https://github.com/goswami97/testingrepo.git'
+					}
+				}
+				stage('Mail'){
+				    steps{
+				        script{
+				            
+				            subject="${currentBuild.projectName} - Build # ${currentBuild.number}"
+				            body="<html><body>Hi all,<br><br>CI-CD Pipeline has been initiated.<br><br>Regards,<br>DevOps Team.</body></html>"
+				            mail_to="santoshgoswami691@gmail.com"
+				            mail bcc: '', body: "${body}", cc: '', charset: 'UTF-8', from: '',mimeType: 'text/html', replyTo: '', subject: "${subject}", to: "${mail_to}"
+				            
+				        }
+				    }
+				}
+				stage('Git tag'){
+					steps{
+						script{
+						    sh '''
+						    LATEST_TAG=$(git  describe --tag | awk -F "-" '{print $1}')
+		                    major=$(echo "$LATEST_TAG" | awk -F "." '{print $1}')
+		                    minor=$(echo "$LATEST_TAG" | awk -F "." '{print $2}')
+		                    patch=$(echo "$LATEST_TAG" | awk -F "." '{print $3}')
+
+		                    echo "major $major"
+		                    echo "minor $minor"
+		                    echo "patch $patch"
+
+		                    newpatch=$(expr $patch + 1)
+		                    echo "new patch $newpatch"
+
+		                    new_tag="${major}.${minor}.${newpatch}"
+		                    echo "the new git tag generated $new_tag"
+                    
+		                    echo $new_tag > /tmp/buildNo
+						    
+						    '''
+						}
+					}
+				}
+				stage('Code Build'){
+					steps{
+						script{
+						    sh '''
+						    mvn clean package
+						    cp target/*.war /home/projectX
+						    '''
+						}
+					}
+				}
+				stage('Docker Image Build and Tag'){
+				    steps{
+				        withCredentials([usernamePassword(credentialsId: 'dockerCred', passwordVariable: 'dockerPass', usernameVariable: 'dockerID')]) {
+                            sh '''
+                            new_tag=$(cat /tmp/buildNo)
+                            cd /home/projectX/
+                            docker login --username "$dockerID" --password "$dockerPass"
+                            docker build -t santoshgoswami/samplewebapp:$new_tag .
+                            '''
+                            
+                        }
+				    }
+				}
+				stage('Docker image push to docker hub'){
+				    steps{
+				        sh '''
+				        new_tag=$(cat /tmp/buildNo)
+                        docker push santoshgoswami/samplewebapp:$new_tag
+				        '''
+				    }
+				}
+				stage('Deploy container in Remote server'){
+				    steps{
+				        sh '''
+				        new_tag=$(cat /tmp/buildNo)
+				        cont_ID=$(ssh jnsadmin@172.30.70.184 'docker ps -qa --filter name=samplewebapp')
+				        ssh jnsadmin@172.30.70.184 docker rm "${cont_ID}" -f
+				        docker -H ssh://jnsadmin@172.30.70.184 run --name samplewebapp  -d -p 8000:8080 santoshgoswami/samplewebapp:$new_tag
+				        '''
+				    }
+				}
+				stage('Deployment Status'){
+				    steps{
+				        sleep 30
+				        withCredentials([string(credentialsId: 'githubAccessToken', variable: 'githubAccessToken')]) {
+				            sh '''
+				            new_tag=$(cat /tmp/buildNo)
+				            status=$(curl -so /dev/null -w '%{response_code}' http://172.30.70.184:8000/LoginWebApp-1/) || true
+				            if [[ "$status" -eq 200 ]]
+				            then
+				                echo "Deployment Successfull"
+				                echo 'SUCCESS' > /tmp/deployment_status.txt
+				                git tag "$new_tag"
+				                git push https://goswami97:"$githubAccessToken"@github.com/goswami97/testingrepo.git --tags
+				            else
+				                echo "Deployment Fail"
+				                echo 'FAIL' > /tmp/deployment_status.txt
+				            fi
+				            '''
+				        }   
+				    }
+				}
+				
+				
+			}
+		}
+		stage('Testing'){
+			when{
+				environment name: 'Deploy_To', value: 'DeployTest'
+			}
+			
+			agent any
+			
+			stages{
+				stage('Test Stage-1'){
+					steps{
+						echo 'this is test stage 1'
+					}
+				}
+				
+				stage('Test Stage-2'){
+					steps{
+						echo 'this is test stage 2'
+					}
+				}
+				
+				stage('Test Stage-3'){
+					steps{
+						echo 'this is test stage 3'
 					}
 				}
 			}
 		}
+		stage('UAT Environment'){
+			when{
+				environment name: 'Deploy_To', value: 'DeployUAT'
+			}
+			
+			agent any
+			
+			stages{
+				stage('UAT Stage-1'){
+					steps{
+						echo 'this is uat stage 1'
+					}
+				}
+				
+				stage('UAT Stage-2'){
+					steps{
+						echo 'this is uat stage 2'
+					}
+				}
+				
+				stage('UAT Stage-3'){
+					steps{
+						echo 'this is uat stage 3'
+					}
+				}
+			}
+		}
+		
+
 	}
 }
